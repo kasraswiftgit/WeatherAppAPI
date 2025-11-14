@@ -11,6 +11,7 @@ class WeatherManager {
     
     private let apiKey = "303707732fd81d36c795622c0a3d4b16"
     private let baseURL = "https://api.openweathermap.org/data/2.5/weather"
+    private let baseForecastURL = "https://api.openweathermap.org/data/2.5/forecast" // NEW ENDPOINT!
     
     func fetchWeather(latitude: Double, longitude: Double) async throws -> WeatherResponse {
         
@@ -45,5 +46,37 @@ class WeatherManager {
         }
         
     }
+    
+    func fetchFiveDayForecast(latitude: Double, longitude: Double) async throws -> FiveDayForecastResponse {
+            
+            // 1. Construct the URL for the /forecast endpoint
+            let urlString = "\(baseForecastURL)?lat=\(latitude)&lon=\(longitude)&appid=\(apiKey)&units=metric"
+            
+            guard let url = URL(string: urlString) else {
+                throw URLError(.badURL)
+            }
+            
+            // 2. Perform the Network Request
+            let (data, response) = try await URLSession.shared.data(from: url)
+            
+            // 3. Check the HTTP Response Status
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                throw URLError(.badServerResponse)
+            }
+            
+            // 4. Decode the Data into the new Model structure
+            do {
+                let decoder = JSONDecoder()
+                // CRITICAL: Decode into the new root struct
+                let decodedResponse = try decoder.decode(FiveDayForecastResponse.self, from: data)
+                
+                return decodedResponse
+            } catch {
+                print("FiveDayForecast decoding error: \(error)")
+                throw error
+            }
+        }
+            
+        
     
 }

@@ -1,65 +1,117 @@
-//
-//  WeatherViewModel.swift
-//  WeatherApp
-//
-//  Created by Kasra Hosseininejad on 10/11/25.
-//
-
 import Foundation
 import Combine
+import MapKit // Required if using map types
 
-// 1. @MainActor and ObservableObject setup
-// @MainActor ensures all UI-related updates are safe (on the main thread).
-// ObservableObject allows SwiftUI views to subscribe to its changes.
+// MARK: - UI Helper Models (Structs are correct)
+
+// UI Helper: Used for the horizontal scrolling forecast
+struct HourlyForecastItem: Identifiable {
+    let id = UUID()
+    let time: String        // e.g., "1 PM"
+    let temperature: String // e.g., "18°"
+    let iconName: String    // e.g., "cloud.sun.fill" (SFSymbol name)
+}
+
+// UI Helper: Used for the single min/max display bar
+struct DailySummary {
+    var minTemp: String = "--"
+    var maxTemp: String = "--"
+}
+
+// --- WeatherViewModel Class ---
 
 @MainActor
 class WeatherViewModel: ObservableObject {
     
-    // Instantiate your manager to handle the networking logic
+    // Dependencies
     private let manager = WeatherManager()
     
-    // 2. State Properties (@Published)
-    // These properties automatically notify the SwiftUI View when their values change.
-    @Published var cityName: String = "Loading..."
-    @Published var currentTemp: String = "__"
-    @Published var weatherDescription: String = "..."
+    // MARK: - Published State Properties (Non-optional defaults are CRITICAL)
     
+    // Current Weather State
+    @Published var cityName: String = "Loading Location"
+    @Published var currentTemp: String = "--°"
+    @Published var weatherDescription: String = "Fetching data"
+
+    // Forecast State
+    @Published var hourlyItems: [HourlyForecastItem] = []
+    @Published var dailySummary = DailySummary()
+    
+    // UI State
     @Published var isLoading: Bool = false
     @Published var errorMessage: String? = nil
     
-    // 3. Implement the Fetching Logic (Task)
-    func loadWeather(latitude: Double, longitude: Double) {
-        
+    // MARK: - Core Loading Function
+    
+    // Renamed for consistency with the ContentView call
+    func loadAllWeather(latitude: Double, longitude: Double) {
         // Reset state and activate loading indicator
         self.isLoading = true
         self.errorMessage = nil
-        
-        // Use Task to perform asynchronous network work off the main thread
+        self.hourlyItems = []
+        self.dailySummary = DailySummary()
         
         Task {
-                    do {
-                        // Await the result from the WeatherManager
-                        let response = try await manager.fetchWeather(latitude: latitude, longitude: longitude)
-                        
-                        // On SUCCESS: Update Published properties with formatted data
-                        // The @MainActor ensures these updates are safe for the UI.
-                        self.cityName = response.name
-                        
-                        // Format the temperature (Double) into a clean, rounded string
-                        self.currentTemp = "\(Int(response.main.temp.rounded()))°C"
-                        
-                        // Get the first weather condition description and capitalize it
-                        self.weatherDescription = response.weather.first?.description.capitalized ?? "N/A"
-                        
-                    } catch {
-                        // On FAILURE: Update error state
-                        print("Weather Fetch Error: \(error)")
-                        self.errorMessage = "Failed to load weather: \(error.localizedDescription)"
-                        self.cityName = "Error"
-                    }
-                    
-                    // Stop loading indicator (runs whether success or failure)
-                    self.isLoading = false
-                }
+            do {
+                // 1. Await Current Conditions
+                let currentResponse = try await manager.fetchWeather(latitude: latitude, longitude: longitude)
+                
+                // Update current weather UI elements
+                self.cityName = currentResponse.name
+                self.currentTemp = "\(Int(currentResponse.main.temp.rounded()))°C"
+                self.weatherDescription = currentResponse.weather.first?.description.capitalized ?? "N/A"
+                
+                // 2. Await 5-Day Forecast
+                let forecastResponse = try await manager.fetchFiveDayForecast(latitude: latitude, longitude: longitude)
+                
+                // 3. Process the forecast data
+                self.processForecast(list: forecastResponse.list)
+                
+            } catch {
+                // Handle error for either call
+                print("Weather loading error: \(error)")
+                self.errorMessage = "Failed to load all weather data."
+                self.cityName = "Error"
             }
+            
+            self.isLoading = false
         }
+    }
+    
+    // MARK: - Processing Helpers
+    
+    private func processForecast(list: [ForecastListItem]) {
+        
+        // 1. Hourly Forecast (Get the next 8 intervals)
+        let nextEightHours = Array(list.prefix(8))
+        
+        self.hourlyItems = nextEightHours.map { item in
+            HourlyForecastItem(
+                time: self.timeString(from: item.dt),
+                temperature: "\(Int(item.main.temp.rounded()))°",
+                iconName: item.weather.first?.icon ?? "cloud"
+            )
+        }
+        
+        // 2. Daily Min/Max (Find the true min/max for the current day)
+        
+        let today = Calendar.current.startOfDay(for: Date())
+        let currentDayForecast = list.filter { item in
+            Date(timeIntervalSince1970: item.dt) >= today
+        }
+        
+        let overallMin = currentDayForecast.min(by: { $0.main.tempMin < $1.main.tempMin })?.main.tempMin ?? 0
+        let overallMax = currentDayForecast.max(by: { $0.main.tempMax < $1.main.tempMax })?.main.tempMax ?? 0
+        
+        self.dailySummary.minTemp = "\(Int(overallMin.rounded()))°"
+        self.dailySummary.maxTemp = "\(Int(overallMax.rounded()))°"
+    }
+    
+    private func timeString(from timeInterval: TimeInterval) -> String {
+        let date = Date(timeIntervalSince1970: timeInterval)
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        formatter.dateFormat = "ha"
+        return formatter.string(from: date)
+    }
+}

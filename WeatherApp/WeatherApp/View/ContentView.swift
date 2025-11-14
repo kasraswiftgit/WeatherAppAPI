@@ -8,46 +8,49 @@
 import SwiftUI
 
 struct ContentView: View {
-    // Instantiate the ViewModel using @StateObject
     @StateObject private var viewModel = WeatherViewModel()
     
     var body: some View {
-            // ZStack for background and foreground content
-            ZStack {
-                // Optional: Background color/gradient
-                LinearGradient(gradient: Gradient(colors: [.blue, .cyan]),
-                               startPoint: .top, endPoint: .bottom)
-                    .edgesIgnoringSafeArea(.all)
-                
-                VStack {
-                    // Conditional rendering based on ViewModel state
+        // Full screen background
+        LinearGradient(gradient: Gradient(colors: [.blue, .cyan]),
+                       startPoint: .top, endPoint: .bottom)
+        .edgesIgnoringSafeArea(.all)
+        .overlay(
+            // Vertical scrolling container
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 20) {
                     if viewModel.isLoading {
-                        ProgressView("Fetching Weather...")
+                        ProgressView("Loading Weather...")
                             .tint(.white)
+                            .padding(.top, 150)
                     } else if let error = viewModel.errorMessage {
-                        Text(viewModel.cityName) // Displays "Error"
-                            .font(.largeTitle)
-                        Text(error)
-                            .foregroundColor(.red)
+                        Text("Error: \(error)").foregroundColor(.red)
                     } else {
-                        // Display the successful weather data
+                        // 1. Current Conditions (Main Large Text)
                         WeatherDisplay(viewModel: viewModel)
+                            .padding(.top, 50)
+                        
+                        // 2. Hourly Forecast Block
+                        HourlyForecastView(viewModel: viewModel)
+                        
+                        // 3. Daily Min/Max Summary Bar
+                        DailySummaryView(viewModel: viewModel)
+                        
+                        // NOTE: You can add other detailed blocks here (e.g., wind, humidity)
                     }
                 }
-                .foregroundColor(.white) // Sets default text color for clarity
             }
+        )
+        // CRITICAL: Call the new function to load all data
         .task {
-            let naplesLat = 40.8518
-            let naplesLong = 14.2681
-            
-            viewModel.loadWeather(latitude: naplesLat, longitude: naplesLong)
-            
-            
+            // Use your target location (Naples coordinates example)
+            viewModel.loadAllWeather(latitude: 40.8518, longitude: 14.2681)
         }
-        
+        .foregroundColor(.white)
     }
-        
 }
+
+// NOTE: Ensure your existing WeatherDisplay struct is still available and functioning.
 
 #Preview {
     ContentView()
